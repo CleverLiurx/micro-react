@@ -1,10 +1,17 @@
-import { createElement } from "./react";
+import { createElement, render } from "./react";
 
 const element = createElement(
-    'h1',
-    { id: 'title', class: 'article-title' },
-    'Hello World',
-    createElement('h2')
-)
+  "h1",
+  { id: "title", style: "background: yellow" },
+  "Hello World",
+  createElement(
+    "a",
+    { href: "https://www.bilibili.com", target: "_black" },
+    "Bilibili"
+  )
+);
 
-console.log(element)
+const root = document.getElementById("root");
+render(element, root);
+
+console.log(element);
