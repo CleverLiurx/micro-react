@@ -1,4 +1,5 @@
 let nextUnitOfWork = null;
+let wipRoot = null;
 
 function createDom(fiber) {
   // 创建dom
@@ -18,7 +19,7 @@ function createDom(fiber) {
 
 // 入口：创建root fiber
 function render(element, container) {
-  nextUnitOfWork = {
+  wipRoot = {
     dom: container,
     props: {
       children: [element],
@@ -27,27 +28,46 @@ function render(element, container) {
     child: null,
     sibling: null,
   };
+  nextUnitOfWork = wipRoot;
+}
+
+function commitRoot() {
+  console.log('wipRoot...', wipRoot)
+  commitWork(wipRoot.child)
+  wipRoot = null
+}
+
+function commitWork(fiber) {
+  if (!fiber) {
+    return
+  }
+  const domParent = fiber.parent.dom
+  domParent.appendChild(fiber.dom)
+  commitWork(fiber.child)
+  commitWork(fiber.sibling)
 }
 
 function worKLoop(deadline) {
   let shouldYield = false;
   while (nextUnitOfWork && !shouldYield) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
-    console.log(nextUnitOfWork)
     shouldYield = deadline.timeRemaining() < 1;
   }
+
+  if (!nextUnitOfWork && wipRoot) {
+    commitRoot()
+  }
+
   requestIdleCallback(worKLoop);
 }
 
 requestIdleCallback(worKLoop);
 
+
+
 function performUnitOfWork(fiber) {
   if (!fiber.dom) {
     fiber.dom = createDom(fiber);
-  }
-
-  if (fiber.parent) {
-    fiber.parent.dom.appendChild(fiber.dom);
   }
 
   const elements = fiber.props.children;
