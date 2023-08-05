@@ -13,5 +13,3 @@ const element = createElement(
 
 const root = document.getElementById("root");
 render(element, root);
-
-console.log(element);
