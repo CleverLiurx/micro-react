@@ -1,3 +1,20 @@
+let nextUnitOfWork = null;
+
+function worKLoop(deadline) {
+  let shouldYield = false;
+  while (nextUnitOfWork && !shouldYield) {
+    nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+    shouldYield = deadline.timeRemaining() < 1;
+  }
+  requestIdleCallback(worKLoop);
+}
+
+requestIdleCallback(worKLoop);
+
+function performUnitOfWork(work) {
+  // TODO
+}
+
 function render(element, container) {
   // 创建dom
   const dom =
@@ -12,7 +29,7 @@ function render(element, container) {
     .forEach((name) => (dom[name] = element.props[name]));
 
   // 递归的创建子元素
-  element.props.children.forEach((child) => render(child, dom));
+  // element.props.children.forEach((child) => render(child, dom));
 
   // 添加到容器
   container.appendChild(dom);
