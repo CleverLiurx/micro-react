@@ -160,7 +160,6 @@ function updateHostComponent(fiber) {
 }
 
 function updateFunctionComponent(fiber) {
-  console.log("fiber...", fiber);
   wipFiber = fiber;
   hookIndex = 0;
   wipFiber.hooks = [];
@@ -196,7 +195,6 @@ function useState(initial) {
   };
 
   wipFiber.hooks.push(hook);
-  console.log("push hook...", hook);
   hookIndex++;
 
   return [hook.state, setState];
