@@ -1,7 +1,9 @@
 let nextUnitOfWork = null;
 let wipRoot = null;
 let currentRoot = null;
-let deletion = null;
+let deletions = null;
+let wipFiber = null;
+let hookIndex = null;
 
 function createDom(fiber) {
   // 创建dom
@@ -11,10 +13,7 @@ function createDom(fiber) {
       : document.createElement(fiber.type);
 
   // 赋予属性
-  const isProperty = (key) => key !== "children";
-  Object.keys(fiber.props)
-    .filter(isProperty)
-    .forEach((name) => (dom[name] = fiber.props[name]));
+  updateDom(dom, {}, fiber.props);
 
   return dom;
 }
@@ -31,13 +30,12 @@ function render(element, container) {
     sibling: null,
     alternate: currentRoot,
   };
-  deletion = [];
+  deletions = [];
   nextUnitOfWork = wipRoot;
 }
 
 function commitRoot() {
-  console.log("wipRoot...", wipRoot);
-  deletion.forEach(commitWork); // 删除
+  deletions.forEach(commitWork); // 删除
   commitWork(wipRoot.child);
   currentRoot = wipRoot;
   wipRoot = null;
@@ -109,7 +107,7 @@ function updateDom(dom, prevProps, nextProps) {
     .filter((k) => prevProps[k] !== nextProps[k])
     .forEach((name) => {
       const eventType = name.toLowerCase().substring(2);
-      dom.addEventListener(eventType, prevProps[name]);
+      dom.addEventListener(eventType, nextProps[name]);
     });
 }
 
@@ -162,8 +160,46 @@ function updateHostComponent(fiber) {
 }
 
 function updateFunctionComponent(fiber) {
+  console.log("fiber...", fiber);
+  wipFiber = fiber;
+  hookIndex = 0;
+  wipFiber.hooks = [];
   const children = [fiber.type(fiber.props)];
   reconcileChildren(fiber, children);
+}
+
+function useState(initial) {
+  const oldHook =
+    wipFiber.alternate &&
+    wipFiber.alternate.hooks &&
+    wipFiber.alternate.hooks[hookIndex];
+
+  const hook = {
+    state: oldHook ? oldHook.state : initial,
+    queue: [],
+  };
+
+  const actions = oldHook ? oldHook.queue : [];
+  actions.forEach((action) => {
+    hook.state = action(hook.state);
+  });
+
+  const setState = (action) => {
+    hook.queue.push(action);
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot,
+    };
+    nextUnitOfWork = wipRoot;
+    deletions = [];
+  };
+
+  wipFiber.hooks.push(hook);
+  console.log("push hook...", hook);
+  hookIndex++;
+
+  return [hook.state, setState];
 }
 
 // 构建fiber，对比wipFiber的子节点
@@ -216,7 +252,7 @@ function reconcileChildren(wipFiber, elements) {
     if (!sameType && oldFiber) {
       // 类型不相同，而且存在老的，那么要把老的删除
       oldFiber.effectTag = "DELETION";
-      deletion.push(oldFiber);
+      deletions.push(oldFiber);
     }
 
     if (oldFiber) {
@@ -234,4 +270,5 @@ function reconcileChildren(wipFiber, elements) {
   }
 }
 
+export { useState };
 export default render;
