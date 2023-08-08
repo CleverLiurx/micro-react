@@ -37,7 +37,7 @@ function render(element, container) {
 
 function commitRoot() {
   console.log("wipRoot...", wipRoot);
-  deletion.forEach(commitWork) // 删除
+  deletion.forEach(commitWork); // 删除
   commitWork(wipRoot.child);
   currentRoot = wipRoot;
   wipRoot = null;
@@ -47,50 +47,70 @@ function commitWork(fiber) {
   if (!fiber) {
     return;
   }
-  const domParent = fiber.parent.dom;
-  if (fiber.effectTag === 'PLACEMENT' && fiber.dom != null) {
-    domParent.appendChild(fiber.dom);
-  } else if (fiber.effectTag === 'DELETION') {
-    domParent.removeChild(fiber.dom)
-  } else if (fiber.effectTag === 'UPDATE' && fiber.dom != null) {
-    updateDom(fiber.dom, fiber.alternate.props, fiber.props)
+
+  let domParentFiber = fiber.parent;
+  while (!domParentFiber.dom) {
+    domParentFiber = domParentFiber.parent;
   }
+  const domParent = domParentFiber.dom;
+  // const domParent = fiber.parent.dom;
+
+  if (fiber.effectTag === "PLACEMENT" && fiber.dom != null) {
+    domParent.appendChild(fiber.dom);
+  } else if (fiber.effectTag === "DELETION") {
+    // domParent.removeChild(fiber.dom)
+    commitDeletion(fiber, domParent);
+  } else if (fiber.effectTag === "UPDATE" && fiber.dom != null) {
+    updateDom(fiber.dom, fiber.alternate.props, fiber.props);
+  }
+
   commitWork(fiber.child);
   commitWork(fiber.sibling);
 }
 
-const isEvent = key => key.startsWith('on')
-const isProperty = key => key !== 'children' && !isEvent(key)
+function commitDeletion(fiber, domParent) {
+  if (fiber.dom) {
+    // 普通组件有dom
+    domParent.removeChild(fiber.dom);
+  } else {
+    // 函数式组件，没有dom
+    commitDeletion(fiber.child, domParent);
+  }
+}
+
+const isEvent = (key) => key.startsWith("on");
+const isProperty = (key) => key !== "children" && !isEvent(key);
+
 function updateDom(dom, prevProps, nextProps) {
   // 先删除 老的或者改变了的 事件
   Object.keys(prevProps)
     .filter(isEvent)
-    .filter(k => !(k in nextProps) || nextProps[k] !== prevProps[k])
-    .forEach(name => {
-      const eventType = name.toLowerCase().substring(2)
-      dom.removeEventListener(eventType, prevProps[name])
-    })
+    .filter((k) => !(k in nextProps) || nextProps[k] !== prevProps[k])
+    .forEach((name) => {
+      const eventType = name.toLowerCase().substring(2);
+      dom.removeEventListener(eventType, prevProps[name]);
+    });
 
   // 移除老的props
   Object.keys(prevProps)
     .filter(isProperty)
-    .filter(k => !(k in nextProps))
-    .forEach(name => dom[name] = '')
+    .filter((k) => !(k in nextProps))
+    .forEach((name) => (dom[name] = ""));
 
   // 设置新的或改变的props
   Object.keys(nextProps)
     .filter(isProperty)
-    .filter(k => prevProps[k] !== nextProps[k])
-    .forEach(name => dom[name] = nextProps[name])
+    .filter((k) => prevProps[k] !== nextProps[k])
+    .forEach((name) => (dom[name] = nextProps[name]));
 
   // 绑定 新的或者改变了的 事件
   Object.keys(nextProps)
     .filter(isEvent)
-    .filter(k => prevProps[k] !== nextProps[k])
-    .forEach(name => {
-      const eventType = name.toLowerCase().substring(2)
-      dom.addEventListener(eventType, prevProps[name])
-    })
+    .filter((k) => prevProps[k] !== nextProps[k])
+    .forEach((name) => {
+      const eventType = name.toLowerCase().substring(2);
+      dom.addEventListener(eventType, prevProps[name]);
+    });
 }
 
 function worKLoop(deadline) {
@@ -110,12 +130,15 @@ function worKLoop(deadline) {
 requestIdleCallback(worKLoop);
 
 function performUnitOfWork(fiber) {
-  if (!fiber.dom) {
-    fiber.dom = createDom(fiber);
-  }
+  const isFunctionComponent = fiber.type instanceof Function;
 
-  const elements = fiber.props.children;
-  reconcileChildren(fiber, elements);
+  if (isFunctionComponent) {
+    // 函数组件
+    updateFunctionComponent(fiber);
+  } else {
+    // 普通组件
+    updateHostComponent(fiber);
+  }
 
   if (fiber.child) {
     return fiber.child;
@@ -127,6 +150,20 @@ function performUnitOfWork(fiber) {
     }
     nextFiber = nextFiber.parent;
   }
+}
+
+function updateHostComponent(fiber) {
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+
+  const elements = fiber.props.children;
+  reconcileChildren(fiber, elements);
+}
+
+function updateFunctionComponent(fiber) {
+  const children = [fiber.type(fiber.props)];
+  reconcileChildren(fiber, children);
 }
 
 // 构建fiber，对比wipFiber的子节点
