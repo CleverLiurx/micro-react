@@ -1,5 +1,7 @@
 let nextUnitOfWork = null;
 let wipRoot = null;
+let currentRoot = null;
+let deletion = null;
 
 function createDom(fiber) {
   // 创建dom
@@ -17,7 +19,7 @@ function createDom(fiber) {
   return dom;
 }
 
-// 入口：创建root fiber
+// 入口：创建 root fiber
 function render(element, container) {
   wipRoot = {
     dom: container,
@@ -27,24 +29,68 @@ function render(element, container) {
     parent: null,
     child: null,
     sibling: null,
+    alternate: currentRoot,
   };
+  deletion = [];
   nextUnitOfWork = wipRoot;
 }
 
 function commitRoot() {
-  console.log('wipRoot...', wipRoot)
-  commitWork(wipRoot.child)
-  wipRoot = null
+  console.log("wipRoot...", wipRoot);
+  deletion.forEach(commitWork) // 删除
+  commitWork(wipRoot.child);
+  currentRoot = wipRoot;
+  wipRoot = null;
 }
 
 function commitWork(fiber) {
   if (!fiber) {
-    return
+    return;
   }
-  const domParent = fiber.parent.dom
-  domParent.appendChild(fiber.dom)
-  commitWork(fiber.child)
-  commitWork(fiber.sibling)
+  const domParent = fiber.parent.dom;
+  if (fiber.effectTag === 'PLACEMENT' && fiber.dom != null) {
+    domParent.appendChild(fiber.dom);
+  } else if (fiber.effectTag === 'DELETION') {
+    domParent.removeChild(fiber.dom)
+  } else if (fiber.effectTag === 'UPDATE' && fiber.dom != null) {
+    updateDom(fiber.dom, fiber.alternate.props, fiber.props)
+  }
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
+}
+
+const isEvent = key => key.startsWith('on')
+const isProperty = key => key !== 'children' && !isEvent(key)
+function updateDom(dom, prevProps, nextProps) {
+  // 先删除 老的或者改变了的 事件
+  Object.keys(prevProps)
+    .filter(isEvent)
+    .filter(k => !(k in nextProps) || nextProps[k] !== prevProps[k])
+    .forEach(name => {
+      const eventType = name.toLowerCase().substring(2)
+      dom.removeEventListener(eventType, prevProps[name])
+    })
+
+  // 移除老的props
+  Object.keys(prevProps)
+    .filter(isProperty)
+    .filter(k => !(k in nextProps))
+    .forEach(name => dom[name] = '')
+
+  // 设置新的或改变的props
+  Object.keys(nextProps)
+    .filter(isProperty)
+    .filter(k => prevProps[k] !== nextProps[k])
+    .forEach(name => dom[name] = nextProps[name])
+
+  // 绑定 新的或者改变了的 事件
+  Object.keys(nextProps)
+    .filter(isEvent)
+    .filter(k => prevProps[k] !== nextProps[k])
+    .forEach(name => {
+      const eventType = name.toLowerCase().substring(2)
+      dom.addEventListener(eventType, prevProps[name])
+    })
 }
 
 function worKLoop(deadline) {
@@ -55,7 +101,7 @@ function worKLoop(deadline) {
   }
 
   if (!nextUnitOfWork && wipRoot) {
-    commitRoot()
+    commitRoot();
   }
 
   requestIdleCallback(worKLoop);
@@ -63,37 +109,13 @@ function worKLoop(deadline) {
 
 requestIdleCallback(worKLoop);
 
-
-
 function performUnitOfWork(fiber) {
   if (!fiber.dom) {
     fiber.dom = createDom(fiber);
   }
 
   const elements = fiber.props.children;
-  let index = 0;
-  let prevSibling = null;
-  while (index < elements.length) {
-    const element = elements[index];
-
-    const newFiber = {
-      type: element.type,
-      props: element.props,
-      parent: fiber,
-      dom: null,
-      child: null,
-      sibling: null,
-    };
-
-    if (index === 0) {
-      fiber.child = newFiber;
-    } else {
-      prevSibling.sibling = newFiber;
-    }
-    prevSibling = newFiber;
-
-    index++;
-  }
+  reconcileChildren(fiber, elements);
 
   if (fiber.child) {
     return fiber.child;
@@ -104,6 +126,74 @@ function performUnitOfWork(fiber) {
       return nextFiber.sibling;
     }
     nextFiber = nextFiber.parent;
+  }
+}
+
+// 构建fiber，对比wipFiber的子节点
+function reconcileChildren(wipFiber, elements) {
+  let index = 0;
+  let oldFiber = wipFiber.alternate && wipFiber.alternate.child;
+  let prevSibling = null;
+
+  while (index < elements.length || oldFiber != null) {
+    const element = elements[index];
+    let newFiber = null;
+
+    // 判断是否为相同类型的fiber
+    const sameType = oldFiber && element && oldFiber.type === element.type;
+
+    // old    h1    h1          span    div
+    // ele    h1    h2          span
+    //       更新  新增h2删除h1  更新    删除老的div
+
+    // Here React also uses keys, that makes a better reconciliation.
+    // For example, it detects when children change places in the element array.
+    if (sameType) {
+      // 是相同类型的，执行更新操作
+      newFiber = {
+        type: oldFiber.type,
+        props: element.props, // 更新props
+        dom: oldFiber.dom, // 使用老的dom
+        parent: wipFiber,
+        child: null,
+        sibling: null,
+        alternate: oldFiber,
+        effectTag: "UPDATE",
+      };
+    }
+
+    if (!sameType && element) {
+      // 类型不相同，而且存在新的元素，执行新增操作
+      newFiber = {
+        type: element.type,
+        props: element.props,
+        dom: null, // performUnitOfWork时候创建
+        parent: wipFiber,
+        child: null,
+        sibling: null,
+        alternate: null,
+        effectTag: "PLACEMENT",
+      };
+    }
+
+    if (!sameType && oldFiber) {
+      // 类型不相同，而且存在老的，那么要把老的删除
+      oldFiber.effectTag = "DELETION";
+      deletion.push(oldFiber);
+    }
+
+    if (oldFiber) {
+      oldFiber = oldFiber.sibling;
+    }
+
+    if (index === 0) {
+      wipFiber.child = newFiber;
+    } else {
+      prevSibling.sibling = newFiber;
+    }
+    prevSibling = newFiber;
+
+    index++;
   }
 }
 
